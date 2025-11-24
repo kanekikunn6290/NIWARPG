@@ -18,27 +18,22 @@ import java.sql.SQLException;
 
 public final class MMORPGPlugin extends JavaPlugin {
 
-    // --- 【追加1】 インスタンス保持用の変数 ---
     private static MMORPGPlugin instance;
 
-    // Module Managers
     private PlayerJobManager jobManager;
     private MobExpManager mobExpManager;
     private MiningManager miningManager;
     private OreSpawnerManager oreSpawnerManager;
 
-    // Listeners
     private LevelDisplayListener levelDisplayListener;
     private LevelUpListener levelUpListener;
 
     @Override
     public void onEnable() {
-        // --- 【追加2】 起動時に自分自身を代入 ---
         instance = this;
 
         Bukkit.getLogger().info("MMORPG Plugin enabled!");
 
-        // --- データベース初期化 ---
         try {
             DatabaseConfig.initialize();
             DatabaseInitializer.initializeTables();
@@ -48,26 +43,20 @@ public final class MMORPGPlugin extends JavaPlugin {
             return;
         }
 
-        // --- マネージャー初期化 ---
         jobManager = new PlayerJobManager();
         mobExpManager = new MobExpManager(getDataFolder());
 
-        // 新しい採掘マネージャーを初期化して起動
         miningManager = new MiningManager(this);
         miningManager.startup();
 
-        // 採掘スポナーマネージャーを初期化
         oreSpawnerManager = new OreSpawnerManager(this, miningManager);
         miningManager.setOreSpawnerManager(oreSpawnerManager);
 
-
-        // --- コマンド登録 ---
         getCommand("mmorpg").setExecutor((sender, cmd, label, args) -> {
             sender.sendMessage("§aMMORPG Plugin v" + getDescription().getVersion());
             return true;
         });
 
-        // Job/Level system commands
         JobCommand jobCommand = new JobCommand(jobManager);
         JobDisplayListener displayListener = new JobDisplayListener(jobManager);
         jobCommand.setDisplayListener(displayListener);
@@ -94,14 +83,12 @@ public final class MMORPGPlugin extends JavaPlugin {
 
         getCommand("status").setExecutor(new StatusCommand(jobManager));
 
-        // Mining system commands
         getCommand("givepiccaxe").setExecutor(new GivePickaxeCommand());
         CreateOreCommand createOreCommand = new CreateOreCommand(miningManager);
         getCommand("createore").setExecutor(createOreCommand);
         getCommand("createore").setTabCompleter(createOreCommand);
         getCommand("orespawner").setExecutor(new OreSpawnerCommand(oreSpawnerManager));
 
-        // --- イベントリスナー登録 ---
         getServer().getPluginManager().registerEvents(new PlayerEventListener(jobManager), this);
         getServer().getPluginManager().registerEvents(displayListener, this);
         getServer().getPluginManager().registerEvents(levelDisplayListener, this);
@@ -109,7 +96,6 @@ public final class MMORPGPlugin extends JavaPlugin {
         levelUpListener = new LevelUpListener(jobManager, this);
         getServer().getPluginManager().registerEvents(levelUpListener, this);
 
-        // 新しい採掘システムリスナーを登録
         getServer().getPluginManager().registerEvents(new com.mmorpg.mining.MiningListener(miningManager), this);
     }
 
@@ -117,26 +103,23 @@ public final class MMORPGPlugin extends JavaPlugin {
     public void onDisable() {
         Bukkit.getLogger().info("MMORPG Plugin disabled!");
 
-        // マネージャーを停止
         if (miningManager != null) {
             miningManager.shutdown();
         }
 
-        // スポナーを保存
         if (oreSpawnerManager != null) {
+            // スポナーを保存してからエンティティを削除
             oreSpawnerManager.saveSpawners();
+            oreSpawnerManager.cleanupAllOres();
         }
 
-        // データをクリア
         if (jobManager != null) {
             jobManager.clearAll();
         }
 
-        // データベース接続をクローズ
         DatabaseConfig.close();
     }
 
-    // --- 【追加3】 他のクラスから呼び出すためのメソッド ---
     public static MMORPGPlugin getInstance() {
         return instance;
     }
