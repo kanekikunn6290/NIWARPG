@@ -43,6 +43,11 @@ public class OreSpawnerManager {
             return;
         }
 
+        // 既存のスポナーとエンティティをクリア
+        cleanupAllOres();
+        spawners.clear();
+        oreEntityToSpawnerMap.clear();
+
         for (String id : spawnerSection.getKeys(false)) {
             ConfigurationSection section = spawnerSection.getConfigurationSection(id);
             if (section != null) {
@@ -88,6 +93,7 @@ public class OreSpawnerManager {
 
     public void spawnOreForSpawner(OreSpawner spawner) {
         if (spawner.getLocation().isWorldLoaded()) {
+            // 重複防止のため、MiningManager側で古いエンティティを削除してから作成する機能を呼び出し
             ArmorStand ore = miningManager.createOre(
                     spawner.getLocation(),
                     spawner.getMaterial(),
@@ -108,7 +114,6 @@ public class OreSpawnerManager {
     public void onOreDestroyed(UUID entityId) {
         OreSpawner spawner = oreEntityToSpawnerMap.remove(entityId);
         if (spawner != null) {
-            // Remove the reference from the spawner itself
             spawner.setSpawnedOreEntityId(null);
             scheduleRespawn(spawner);
         }
@@ -118,7 +123,10 @@ public class OreSpawnerManager {
         if (spawners.containsKey(id)) {
             return Optional.empty();
         }
-        OreSpawner spawner = new OreSpawner(id, location, material, mythicItemId, durability, quantity, respawnSeconds);
+        // 位置をブロックの中心に合わせる
+        Location blockCenter = location.getBlock().getLocation().add(0.5, 0, 0.5);
+        
+        OreSpawner spawner = new OreSpawner(id, blockCenter, material, mythicItemId, durability, quantity, respawnSeconds);
         spawners.put(id, spawner);
         spawnOreForSpawner(spawner);
         saveSpawners();
@@ -136,6 +144,21 @@ public class OreSpawnerManager {
             return true;
         }
         return false;
+    }
+
+    /**
+     * プラグイン停止時にすべての鉱石エンティティを削除する
+     */
+    public void cleanupAllOres() {
+        for (OreSpawner spawner : spawners.values()) {
+            if (spawner.getSpawnedOreEntityId() != null) {
+                Entity entity = Bukkit.getEntity(spawner.getSpawnedOreEntityId());
+                if (entity != null) {
+                    entity.remove();
+                }
+            }
+        }
+        oreEntityToSpawnerMap.clear();
     }
 
     public Collection<OreSpawner> getAllSpawners() {
