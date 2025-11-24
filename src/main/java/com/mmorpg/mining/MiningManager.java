@@ -7,17 +7,15 @@ import io.lumine.mythic.api.adapters.AbstractItemStack;
 import io.lumine.mythic.bukkit.BukkitAdapter;
 import io.lumine.mythic.bukkit.MythicBukkit;
 import io.lumine.mythic.core.items.MythicItem;
-import org.bukkit.Bukkit;
-import org.bukkit.Location;
-import org.bukkit.Material;
-import org.bukkit.Sound;
+import net.kyori.adventure.text.Component;
+import org.bukkit.*;
 import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.metadata.FixedMetadataValue;
-import org.bukkit.metadata.MetadataValue;
+import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.scheduler.BukkitTask;
 
 import java.util.*;
@@ -31,16 +29,26 @@ public class MiningManager {
     private static final double MINING_DISTANCE_SQUARED = 25;
     private static final int TICK_INTERVAL = 4;
 
-    private static final String ORE_BLOCK_MATERIAL_KEY = "mmorpg_ore_material";
-    private static final String ORE_MYTHIC_ITEM_KEY = "mmorpg_mythic_item";
-    private static final String DURABILITY_KEY = "mmorpg_ore_durability";
-    private static final String MAX_DURABILITY_KEY = "mmorpg_ore_max_durability";
-    private static final String LOOT_QUANTITY_KEY = "mmorpg_loot_quantity";
+    // 一時的な状態保持用（ダメージ量などはリセットされても良いためメタデータを使用）
     private static final String DAMAGE_MAP_KEY = "mmorpg_damage_map";
-    private static final String IS_ORE_KEY = "mmorpg_is_ore";
+    
+    // 永続的なデータ保存用 (PDCキー)
+    private final NamespacedKey IS_ORE_KEY;
+    private final NamespacedKey ORE_MATERIAL_KEY;
+    private final NamespacedKey ORE_MYTHIC_ITEM_KEY;
+    private final NamespacedKey ORE_MAX_DURABILITY_KEY;
+    private final NamespacedKey ORE_CURRENT_DURABILITY_KEY;
+    private final NamespacedKey ORE_LOOT_QUANTITY_KEY;
 
     public MiningManager(MMORPGPlugin plugin) {
         this.plugin = plugin;
+        // NamespacedKeyの初期化
+        this.IS_ORE_KEY = new NamespacedKey(plugin, "is_ore");
+        this.ORE_MATERIAL_KEY = new NamespacedKey(plugin, "ore_material");
+        this.ORE_MYTHIC_ITEM_KEY = new NamespacedKey(plugin, "ore_mythic_item");
+        this.ORE_MAX_DURABILITY_KEY = new NamespacedKey(plugin, "ore_max_durability");
+        this.ORE_CURRENT_DURABILITY_KEY = new NamespacedKey(plugin, "ore_current_durability");
+        this.ORE_LOOT_QUANTITY_KEY = new NamespacedKey(plugin, "ore_loot_quantity");
     }
 
     public void setOreSpawnerManager(OreSpawnerManager oreSpawnerManager) {
@@ -75,20 +83,22 @@ public class MiningManager {
             ArmorStand ore = (ArmorStand) entity;
             if (player.getLocation().distanceSquared(ore.getLocation()) > MINING_DISTANCE_SQUARED) {
                 stopMiningSession(playerUUID);
-                player.sendActionBar(net.kyori.adventure.text.Component.text("§c鉱石から離れすぎたため採掘を中断しました。"));
+                player.sendActionBar(Component.text("§c鉱石から離れすぎたため採掘を中断しました。"));
                 return;
             }
 
             ItemStack tool = player.getInventory().getItemInMainHand();
             if (!MiningPickaxeManager.isMiningPickaxe(tool)) {
                 stopMiningSession(playerUUID);
-                player.sendActionBar(net.kyori.adventure.text.Component.text("§c専用のピッケルを手に持ってください。"));
+                player.sendActionBar(Component.text("§c専用のピッケルを手に持ってください。"));
                 return;
             }
 
             double damagePerSecond = MiningPickaxeManager.getPickaxeDamage(tool);
             double damagePerTick = damagePerSecond * (TICK_INTERVAL / 20.0);
-            double currentDurability = getDoubleMetadata(ore, DURABILITY_KEY, 0.0);
+            
+            // PDCから耐久値を取得
+            double currentDurability = getDoublePDC(ore, ORE_CURRENT_DURABILITY_KEY, 0.0);
             double newDurability = currentDurability - damagePerTick;
 
             Map<UUID, Double> damageMap = getDamageMap(ore);
@@ -100,7 +110,8 @@ public class MiningManager {
             if (newDurability <= 0) {
                 completeMining(ore);
             } else {
-                ore.setMetadata(DURABILITY_KEY, new FixedMetadataValue(plugin, newDurability));
+                // PDCに耐久値を保存
+                setDoublePDC(ore, ORE_CURRENT_DURABILITY_KEY, newDurability);
                 updateOreDisplayName(ore);
             }
         });
@@ -110,11 +121,11 @@ public class MiningManager {
         if (miningSessions.containsKey(player.getUniqueId())) return;
         ItemStack tool = player.getInventory().getItemInMainHand();
         if (!MiningPickaxeManager.isMiningPickaxe(tool)) {
-            player.sendActionBar(net.kyori.adventure.text.Component.text("§c専用のピッケルで採掘してください。"));
+            player.sendActionBar(Component.text("§c専用のピッケルで採掘してください。"));
             return;
         }
         miningSessions.put(player.getUniqueId(), ore.getUniqueId());
-        player.sendActionBar(net.kyori.adventure.text.Component.text("§a採掘を開始しました..."));
+        player.sendActionBar(Component.text("§a採掘を開始しました..."));
     }
 
     public void stopMiningSession(UUID playerUUID) {
@@ -127,7 +138,6 @@ public class MiningManager {
         ore.getWorld().playSound(ore.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1.0f, 1.2f);
         distributeLoot(ore);
 
-        // Notify the spawner manager BEFORE removing the entity
         if (oreSpawnerManager != null) {
             oreSpawnerManager.onOreDestroyed(ore.getUniqueId());
         }
@@ -147,7 +157,7 @@ public class MiningManager {
         Map<UUID, Double> damageMap = getDamageMap(ore);
         if (damageMap.isEmpty()) return;
 
-        String mythicItemId = getStringMetadata(ore, ORE_MYTHIC_ITEM_KEY, null);
+        String mythicItemId = getStringPDC(ore, ORE_MYTHIC_ITEM_KEY, null);
         if (mythicItemId == null) return;
         
         Optional<MythicItem> mythicItemOpt = MythicBukkit.inst().getItemManager().getItem(mythicItemId);
@@ -157,8 +167,8 @@ public class MiningManager {
         }
         MythicItem mythicItem = mythicItemOpt.get();
 
-        int totalQuantity = getIntMetadata(ore, LOOT_QUANTITY_KEY, 1);
-        double maxDurability = getDoubleMetadata(ore, MAX_DURABILITY_KEY, 1.0);
+        int totalQuantity = getIntPDC(ore, ORE_LOOT_QUANTITY_KEY, 1);
+        double maxDurability = getDoublePDC(ore, ORE_MAX_DURABILITY_KEY, 1.0);
         
         if (totalQuantity == 1) {
             damageMap.entrySet().stream()
@@ -197,22 +207,28 @@ public class MiningManager {
     }
     
     public ArmorStand createOre(Location location, Material blockMat, String mythicId, double durability, int quantity) {
+        // 重複防止：同じ場所に古い鉱石があれば削除
+        cleanupOldOresAt(location);
+
         double yOffset = -1.4;
         Location spawnLocation = location.clone().add(0.5, yOffset, 0.5);
         ArmorStand ore = (ArmorStand) location.getWorld().spawnEntity(spawnLocation, EntityType.ARMOR_STAND);
 
         ore.setVisible(false);
         ore.setGravity(false);
-        ore.setMarker(false);
+        ore.setMarker(false); 
         ore.setInvulnerable(true);
         ore.getEquipment().setHelmet(new ItemStack(blockMat));
 
-        ore.setMetadata(IS_ORE_KEY, new FixedMetadataValue(plugin, true));
-        ore.setMetadata(ORE_BLOCK_MATERIAL_KEY, new FixedMetadataValue(plugin, blockMat.name()));
-        ore.setMetadata(ORE_MYTHIC_ITEM_KEY, new FixedMetadataValue(plugin, mythicId));
-        ore.setMetadata(MAX_DURABILITY_KEY, new FixedMetadataValue(plugin, durability));
-        ore.setMetadata(DURABILITY_KEY, new FixedMetadataValue(plugin, durability));
-        ore.setMetadata(LOOT_QUANTITY_KEY, new FixedMetadataValue(plugin, quantity));
+        // PDC にデータを保存 (サーバー再起動後も残る)
+        setBytePDC(ore, IS_ORE_KEY, (byte) 1);
+        setStringPDC(ore, ORE_MATERIAL_KEY, blockMat.name());
+        setStringPDC(ore, ORE_MYTHIC_ITEM_KEY, mythicId);
+        setDoublePDC(ore, ORE_MAX_DURABILITY_KEY, durability);
+        setDoublePDC(ore, ORE_CURRENT_DURABILITY_KEY, durability);
+        setIntPDC(ore, ORE_LOOT_QUANTITY_KEY, quantity);
+        
+        // ダメージマップは一時的なのでMetadataでOK
         setDamageMap(ore, new HashMap<>());
 
         updateOreDisplayName(ore);
@@ -220,22 +236,29 @@ public class MiningManager {
         return ore;
     }
 
-    public boolean isOre(Entity entity) {
-        if (!(entity instanceof ArmorStand)) return false;
-        for (MetadataValue value : entity.getMetadata(IS_ORE_KEY)) {
-            if (value.getOwningPlugin() == plugin) return value.asBoolean();
-        }
-        return false;
+    /**
+     * 指定座標付近の古い鉱石エンティティを削除する
+     */
+    public void cleanupOldOresAt(Location location) {
+        if (location.getWorld() == null) return;
+        // 指定座標の半径1ブロック以内のエンティティを検索
+        location.getWorld().getNearbyEntities(location.clone().add(0.5, 0, 0.5), 1, 2, 1).stream()
+                .filter(this::isOre)
+                .forEach(Entity::remove);
     }
 
-    // --- Metadata Helper Methods ---
+    public boolean isOre(Entity entity) {
+        if (!(entity instanceof ArmorStand)) return false;
+        // PDCをチェック
+        return entity.getPersistentDataContainer().has(IS_ORE_KEY, PersistentDataType.BYTE);
+    }
+
+    // --- Helper Methods ---
 
     @SuppressWarnings("unchecked")
     private Map<UUID, Double> getDamageMap(ArmorStand ore) {
-        for (MetadataValue value : ore.getMetadata(DAMAGE_MAP_KEY)) {
-            if (value.getOwningPlugin() == plugin && value.value() instanceof Map) {
-                return (Map<UUID, Double>) value.value();
-            }
+        if (ore.hasMetadata(DAMAGE_MAP_KEY)) {
+            return (Map<UUID, Double>) ore.getMetadata(DAMAGE_MAP_KEY).get(0).value();
         }
         return new HashMap<>();
     }
@@ -245,9 +268,9 @@ public class MiningManager {
     }
     
     private void updateOreDisplayName(ArmorStand ore) {
-        double current = getDoubleMetadata(ore, DURABILITY_KEY, 0.0);
-        String materialName = getStringMetadata(ore, ORE_BLOCK_MATERIAL_KEY, "Unknown");
-        double maxDurability = getDoubleMetadata(ore, MAX_DURABILITY_KEY, 1.0);
+        double current = getDoublePDC(ore, ORE_CURRENT_DURABILITY_KEY, 0.0);
+        String materialName = getStringPDC(ore, ORE_MATERIAL_KEY, "Unknown");
+        double maxDurability = getDoublePDC(ore, ORE_MAX_DURABILITY_KEY, 1.0);
         double progress = Math.max(0, current) / maxDurability;
         
         String name = "§f" + materialName + " " + createProgressBar(progress);
@@ -260,25 +283,26 @@ public class MiningManager {
         return "§f[" + "§a|".repeat(greenBars) + "§7|".repeat(totalBars - greenBars) + "§f]";
     }
 
-    private String getStringMetadata(ArmorStand ore, String key, String def) {
-        for (MetadataValue value : ore.getMetadata(key)) {
-            if (value.getOwningPlugin() == plugin) return value.asString();
-        }
-        return def;
+    // PDC Helpers
+    private void setStringPDC(Entity entity, NamespacedKey key, String value) {
+        entity.getPersistentDataContainer().set(key, PersistentDataType.STRING, value);
     }
-
-    private double getDoubleMetadata(ArmorStand ore, String key, double def) {
-        for (MetadataValue value : ore.getMetadata(key)) {
-            if (value.getOwningPlugin() == plugin) return value.asDouble();
-        }
-        return def;
+    private String getStringPDC(Entity entity, NamespacedKey key, String def) {
+        return entity.getPersistentDataContainer().getOrDefault(key, PersistentDataType.STRING, def);
     }
-
-    private int getIntMetadata(ArmorStand ore, String key, int def) {
-        for (MetadataValue value : ore.getMetadata(key)) {
-            if (value.getOwningPlugin() == plugin) return value.asInt();
-        }
-        return def;
+    private void setDoublePDC(Entity entity, NamespacedKey key, double value) {
+        entity.getPersistentDataContainer().set(key, PersistentDataType.DOUBLE, value);
+    }
+    private double getDoublePDC(Entity entity, NamespacedKey key, double def) {
+        return entity.getPersistentDataContainer().getOrDefault(key, PersistentDataType.DOUBLE, def);
+    }
+    private void setIntPDC(Entity entity, NamespacedKey key, int value) {
+        entity.getPersistentDataContainer().set(key, PersistentDataType.INTEGER, value);
+    }
+    private int getIntPDC(Entity entity, NamespacedKey key, int def) {
+        return entity.getPersistentDataContainer().getOrDefault(key, PersistentDataType.INTEGER, def);
+    }
+    private void setBytePDC(Entity entity, NamespacedKey key, byte value) {
+        entity.getPersistentDataContainer().set(key, PersistentDataType.BYTE, value);
     }
 }
-
