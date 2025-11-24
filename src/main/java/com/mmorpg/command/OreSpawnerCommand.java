@@ -5,10 +5,12 @@ import com.mmorpg.mining.spawner.OreSpawnerManager;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.block.Block;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.Collection;
 import java.util.Optional;
@@ -22,7 +24,7 @@ public class OreSpawnerCommand implements CommandExecutor {
     }
 
     @Override
-    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+    public boolean onCommand(@NotNull CommandSender sender, @NotNull Command command, @NotNull String label, @NotNull String[] args) {
         if (!(sender instanceof Player)) {
             sender.sendMessage("This command can only be used by a player.");
             return true;
@@ -73,7 +75,16 @@ public class OreSpawnerCommand implements CommandExecutor {
             return true;
         }
 
-        Location location = player.getLocation();
+        // ターゲットブロックを安全に取得 (最大距離10)
+        Block targetBlock = player.getTargetBlockExact(10);
+        if (targetBlock == null || targetBlock.getType() == Material.AIR) {
+            player.sendMessage(ChatColor.RED + "ブロックを見てコマンドを実行してください。");
+            return true;
+        }
+
+        // ターゲットブロックの真上にスポーンさせる
+        Location location = targetBlock.getLocation().add(0, 1, 0);
+        
         Optional<OreSpawner> spawner = spawnerManager.createSpawner(id, location, material, mythicItemId, durability, quantity, respawnSeconds);
 
         if (spawner.isPresent()) {
@@ -116,7 +127,7 @@ public class OreSpawnerCommand implements CommandExecutor {
 
     private void sendHelp(CommandSender sender) {
         sender.sendMessage(ChatColor.GOLD + "--- Ore Spawner Commands ---");
-        sender.sendMessage(ChatColor.AQUA + "/orespawner create <id> <material> <mythic_item> <durability> <quantity> <respawn_seconds>" + ChatColor.WHITE + " - Creates an ore spawner.");
+        sender.sendMessage(ChatColor.AQUA + "/orespawner create <id> <material> <mythic_item> <durability> <quantity> <respawn_seconds>" + ChatColor.WHITE + " - Creates an ore spawner above the looked-at block.");
         sender.sendMessage(ChatColor.AQUA + "/orespawner list" + ChatColor.WHITE + " - Lists all ore spawners.");
         sender.sendMessage(ChatColor.AQUA + "/orespawner delete <id>" + ChatColor.WHITE + " - Deletes an ore spawner.");
     }
