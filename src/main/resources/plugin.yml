@@ -1,0 +1,42 @@
+name: MMORPG
+version: 1.0.0
+main: com.mmorpg.MMORPGPlugin
+api-version: 1.20.6
+depend: [MythicMobs]
+description: A custom MMORPG plugin for Minecraft Paper Server
+authors:
+  - Developer
+commands:
+  mmorpg:
+    description: MMORPG plugin command
+    usage: /mmorpg
+  job:
+    description: プレイヤーの職業を管理するコマンド (OP専用)
+    usage: /job set <プレイヤー名> <職業名>
+    aliases:
+      - 職業
+  level:
+    description: プレイヤーの経験値とレベルを管理するコマンド (OP専用)
+    usage: /level <プレイヤー名> <exp/level> <set/add/remove> <数値>
+    aliases:
+      - lvl
+  reset:
+    description: プレイヤーの職業・経験値をリセットするコマンド (OP専用)
+    usage: /reset <プレイヤー名>
+  mobexp:
+    description: MOBの基礎経験値を設定するコマンド (OP専用)
+    usage: /mobexp <MOB名> <経験値>
+  status:
+    description: プレイヤーのステータスを表示するコマンド
+    usage: /status
+    aliases:
+      - ステータス
+  createore:
+    description: 新しい採掘システムの鉱石をスポーンするコマンド (OP専用)
+    usage: /createore <鉱石タイプ>
+  givepiccaxe:
+    description: テスト用採掘ピッケルを配布するコマンド (OP専用)
+    usage: /givepiccaxe
+  orespawner:
+    description: 鉱石スポナーを管理するコマンド (OP専用)
+    usage: /orespawner <create/list/delete> [args]

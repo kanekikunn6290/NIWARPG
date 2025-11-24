@@ -1,0 +1,26 @@
+plugins {
+    java
+    id("io.papermc.paperweight.userdev") version "1.7.1"
+}
+
+group = "com.mmorpg"
+version = "1.0.0"
+
+java {
+    toolchain.languageVersion.set(JavaLanguageVersion.of(21))
+}
+
+repositories {
+    mavenCentral()
+    maven("https://repo.papermc.io/repository/maven-public/")
+}
+
+dependencies {
+    paperweight.paperDevBundle("1.20.6-R0.1-SNAPSHOT")
+}
+
+tasks {
+    assemble {
+        dependsOn(reobfJar)
+    }
+}
